@@ -20,6 +20,6 @@ class Institution extends Model
 
     public function services()
     {
-        return $this->hasMany(Crawl::class, 'id_institucije');
+        return $this->hasMany(Service::class, 'id_institucije', 'id_institucije');
     }
 }

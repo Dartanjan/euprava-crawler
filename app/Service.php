@@ -4,7 +4,7 @@ namespace App;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Crawl extends Model
+class Service extends Model
 {
     public $timestamps = false;
 
@@ -24,5 +24,10 @@ class Crawl extends Model
     public function url()
     {
         return "https://www.euprava.gov.rs/eusluge/opis_usluge?generatedServiceId=". $this->id_usluge;
+    }
+
+    public function institution()
+    {
+        return $this->belongsTo(Institution::class, 'id_institucije', 'id_institucije');
     }
 }
