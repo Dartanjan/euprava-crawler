@@ -4,8 +4,10 @@ namespace App\Console\Commands;
 
 use App\Crawl;
 use Carbon\Carbon;
-use PHPHtmlParser\Dom;
+use GuzzleHttp\Client;
+use Illuminate\Support\Collection;
 use Illuminate\Console\Command;
+use PHPHtmlParser\Dom;
 
 class Crawler extends Command
 {
@@ -21,7 +23,7 @@ class Crawler extends Command
      *
      * @var string
      */
-    protected $description = 'Krouluje sajt euprave';
+    protected $description = 'Crawl eUprava website for the list of services';
 
     /**
      * Create a new command instance.
@@ -34,7 +36,7 @@ class Crawler extends Command
     }
 
     /**
-     * Execute the console command.
+     * Run the crawler
      *
      * @return mixed
      */
@@ -42,15 +44,37 @@ class Crawler extends Command
     {
         $this->info("Crawling...");
 
+        $newServices = $this->getNewServices();
+
+        if ($newServices->isNotEmpty()) {
+            $messages = $newServices->map(function ($service) {
+                return sprintf("・ %s (%s) (%s)", $service->naziv, $service->e_usluga ? "e-usluga" : "nije e-usluga", $service->url());
+            });
+
+            info("New or changed items:", $messages->toArray());
+
+            return $this->notify($messages);
+        }
+
+        $this->info("No new or updated services found.");
+    }
+
+    /**
+     * Crawl the site and return list of new services
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getNewServices() : Collection
+    {
         $dom = (new Dom)->loadFromUrl('https://www.euprava.gov.rs/eusluge/usluge_po_slovu?alphabet=lat');
         $items = $dom->find('#main #content ul li > a');
-        $newItems = collect();
+        $newServices = collect();
 
-        array_map(function ($element) use ($newItems) {
+        foreach($items->toArray() as $element) {
             preg_match('/generatedServiceId=([0-9]*)/', $element->getAttribute('href'), $matches);
 
             if (! isset($matches[1])) {
-                return [];
+                continue;
             }
 
             $item = Crawl::firstOrNew([
@@ -66,17 +90,27 @@ class Crawler extends Command
                 $item->vreme = Carbon::now()->toDateTimeString();
                 $item->save();
 
-                $newItems->push($item);
+                $newServices->push($item);
             }
-        }, $items->toArray());
+        };
 
-        $this->info("Done.");
+        return $newServices;
+    }
 
-        if ($newItems->isNotEmpty()) {
-            $this->info("Found new or changed services:");
-            $newItems->each(function ($service) {
-                $this->info($service->naziv);
-            });
-        }
+    /**
+     * Notify our Slack channel about new services
+     *
+     * @param \Illuminate\Support\Collection $messages
+     */
+    public function notify(Collection $messages)
+    {
+        $text = "🙌 Novi servis na eUpravi:\n" . $messages->implode(PHP_EOL);
+
+        $client = new Client;
+        $client->post(config('services.slack'), [
+            'json' => [
+                'text' => $text
+            ]
+        ]);
     }
 }
