@@ -12,6 +12,7 @@ class Crawl extends Model
 
     protected $fillable = [
         'id_usluge',
+        'id_institucije',
         'naziv',
         'e_usluga',
         'dokument',

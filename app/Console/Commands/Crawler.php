@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Crawl;
+use App\Institution;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
 use Illuminate\Support\Collection;
@@ -39,6 +40,7 @@ class Crawler extends Command
      * Run the crawler
      *
      * @return mixed
+     * @throws \Exception
      */
     public function handle()
     {
@@ -57,12 +59,14 @@ class Crawler extends Command
         }
 
         info("No new or updated services found.");
+
         $this->info("No new or updated services found.");
     }
 
     /**
      * Crawl the site and return list of new services
      *
+     * @throws \Exception
      * @return \Illuminate\Support\Collection
      */
     public function getNewServices() : Collection
@@ -72,14 +76,17 @@ class Crawler extends Command
         $newServices = collect();
 
         foreach($items->toArray() as $element) {
-            preg_match('/generatedServiceId=([0-9]*)/', $element->getAttribute('href'), $matches);
+            preg_match('/generatedServiceId=([0-9]*)/', $element->getAttribute('href'), $serviceMatches);
 
-            if (! isset($matches[1])) {
+            if (! isset($serviceMatches[1])) {
                 continue;
             }
 
+            $this->info("Looking into service id " . $serviceMatches[1]);
+            $serviceId = $serviceMatches[1];
+
             $item = Crawl::firstOrNew([
-                'id_usluge' => $matches[1],
+                'id_usluge' => $serviceId,
                 'naziv' => trim(str_replace('"', "'", $element->lastChild()->text)),
                 'e_usluga' => strpos($element->innerHtml(), '(e-usluga)') !== false,
                 'dokument' => strpos($element->innerHtml(), '(ima dokument)') !== false,
@@ -88,7 +95,10 @@ class Crawler extends Command
             ]);
 
             if (! $item->exists) {
+                $institution = $this->getInstitution($serviceId);
+
                 $item->vreme = Carbon::now()->toDateTimeString();
+                $item->id_institucije = $institution->id_institucije;
                 $item->save();
 
                 $newServices->push($item);
@@ -96,6 +106,33 @@ class Crawler extends Command
         };
 
         return $newServices;
+    }
+
+    /**
+     * Get Institution from a service ID
+     *
+     * @param int $id
+     *
+     * @return \App\Institution
+     * @throws \Exception
+     */
+    public function getInstitution(int $id) : Institution
+    {
+        $dom = (new Dom)->loadFromUrl("https://www.euprava.gov.rs/eusluge/opis_usluge?generatedServiceId=" . $id);
+
+        $name = $dom->find("#big-aside p.institutionName");
+        $institutionLink = $dom->find("#big-aside #btnServices > a");
+
+        if (! isset($name[0]) || ! isset($institutionLink[0])) {
+            throw new \Exception("Cannot find institution name or id for service id $id");
+        }
+
+        preg_match('/institutionId=([0-9]+)/', $institutionLink->getAttribute('href'), $matches);
+
+        return Institution::firstOrCreate([
+            'id_institucije' => $matches[1],
+            'naziv' => trim($name[0]->text())
+        ]);
     }
 
     /**
