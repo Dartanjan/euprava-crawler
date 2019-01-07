@@ -56,6 +56,7 @@ class Crawler extends Command
             return $this->notify($messages);
         }
 
+        info("No new or updated services found.");
         $this->info("No new or updated services found.");
     }
 
